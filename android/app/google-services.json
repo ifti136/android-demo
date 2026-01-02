@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "458179656219",
+    "firebase_url": "https://cointracker-80302-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "cointracker-80302",
+    "storage_bucket": "cointracker-80302.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:458179656219:android:8d4b58e31daaf8106896be",
+        "android_client_info": {
+          "package_name": "com.ifti.cointracker"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBmFXPr5nkA2rCmDWfGNkgGcDHgGs2zpG8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
