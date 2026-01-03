@@ -142,6 +142,10 @@ android/.gradle/
 android/build/
 android/app/build/
 android/*/build/
+android/build.gradle
+android/build.gradle.kts
+android/settings.gradle
+android/settings.gradle.kts
 
 # Local configuration file (sdk path, etc)
 android/local.properties
