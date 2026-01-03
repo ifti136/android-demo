@@ -2,6 +2,7 @@ package com.cointracker.mobile.ui
 
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,9 +15,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,25 +33,36 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.cointracker.mobile.data.QuickAction
+import com.cointracker.mobile.data.Settings
 import com.cointracker.mobile.data.Transaction
+import com.cointracker.mobile.data.defaultSettings
+import com.cointracker.mobile.ui.screens.AdminScreen // Ensure you have this file
 
 // ----------------------------------------------------------------
-// THEME COLORS (Cyberpunk / Glassmorphism)
+// THEME COLORS (Matched to Web style.css)
 // ----------------------------------------------------------------
-val NeonPurple = Color(0xFFBC13FE)
-val NeonCyan = Color(0xFF00F0FF)
-val GlassBackground = Color(0xFF121212)
-val GlassSurface = Color.White.copy(alpha = 0.05f)
-val GlassBorder = Color.White.copy(alpha = 0.2f)
+val WebPrimary = Color(0xFF3B82F6) // --primary-color
+val WebSuccess = Color(0xFF10B981) // --success-color
+val WebDanger = Color(0xFFEF4444)  // --danger-color
+val WebText = Color(0xFF1E293B)
+val WebMuted = Color(0xFF64748B)
+
+// Web Gradient: linear-gradient(125deg, #c3aed6, #f0abfc, #a1c4fd, #fdf8c8)
+// Adapted for mobile (Darker glass feel)
+val DarkGlassGradient = Brush.verticalGradient(
+    colors = listOf(Color(0xFF1E1B3A), Color(0xFF4A0F4B), Color(0xFF0B3A5D))
+)
 
 @Composable
 fun GlassTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = NeonPurple,
-            secondary = NeonCyan,
-            background = GlassBackground,
-            surface = Color.Transparent,
+            primary = WebPrimary,
+            secondary = WebSuccess,
+            error = WebDanger,
+            background = Color.Transparent,
+            surface = Color.White.copy(alpha = 0.1f),
             onPrimary = Color.White,
             onBackground = Color.White,
             onSurface = Color.White
@@ -65,12 +74,15 @@ fun GlassTheme(content: @Composable () -> Unit) {
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = GlassSurface),
-        border = BorderStroke(1.dp, GlassBorder),
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.15f)),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
         shape = RoundedCornerShape(16.dp),
         content = content
     )
@@ -79,35 +91,35 @@ fun GlassCard(
 // ----------------------------------------------------------------
 // 1. MAIN NAVIGATION HOST
 // ----------------------------------------------------------------
-
 @Composable
 fun CoinTrackerApp(viewModel: CoinTrackerViewModel = viewModel()) {
     GlassTheme {
         val navController = rememberNavController()
-        val userSession by viewModel.userSession.collectAsState()
-        val currentBackStack by navController.currentBackStackEntryAsState()
-        val currentRoute = currentBackStack?.destination?.route ?: "dashboard"
+        val uiState by viewModel.uiState.collectAsState()
+        val userSession = uiState.session
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color(0xFF0F0C29), Color(0xFF302B63), Color(0xFF24243E))
-                    )
-                )
+                .background(DarkGlassGradient)
         ) {
             if (userSession == null) {
-                LoginScreen(viewModel)
+                // Fix #13: Separate Login/Register Screen
+                LoginNavigation(viewModel)
             } else {
                 Scaffold(
                     containerColor = Color.Transparent,
-                    // Fix: Navigation Bar is separate from content
+                    // Fix #1: Handle Status Bar overlap
+                    contentWindowInsets = WindowInsets.statusBars,
                     bottomBar = {
+                        // Fix #11: Fixed Bottom Navigation
                         NavigationBar(
-                            containerColor = Color.Black.copy(alpha = 0.6f),
-                            contentColor = NeonCyan
+                            containerColor = Color(0xFF1A1D23).copy(alpha = 0.95f),
+                            contentColor = WebPrimary
                         ) {
+                            val currentBackStack by navController.currentBackStackEntryAsState()
+                            val currentRoute = currentBackStack?.destination?.route ?: "dashboard"
+
                             val items = listOf(
                                 "dashboard" to Icons.Default.Home,
                                 "analytics" to Icons.Default.DateRange,
@@ -120,17 +132,19 @@ fun CoinTrackerApp(viewModel: CoinTrackerViewModel = viewModel()) {
                                     label = { Text(route.replaceFirstChar { it.uppercase() }) },
                                     selected = currentRoute == route,
                                     colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = NeonPurple,
-                                        selectedTextColor = NeonPurple,
-                                        unselectedIconColor = Color.Gray,
-                                        unselectedTextColor = Color.Gray,
-                                        indicatorColor = Color.White.copy(alpha = 0.1f)
+                                        selectedIconColor = WebPrimary,
+                                        selectedTextColor = WebPrimary,
+                                        unselectedIconColor = WebMuted,
+                                        unselectedTextColor = WebMuted,
+                                        indicatorColor = WebPrimary.copy(alpha = 0.15f)
                                     ),
                                     onClick = {
-                                        navController.navigate(route) {
-                                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
+                                        if (currentRoute != route) {
+                                            navController.navigate(route) {
+                                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
                                         }
                                     }
                                 )
@@ -138,7 +152,7 @@ fun CoinTrackerApp(viewModel: CoinTrackerViewModel = viewModel()) {
                         }
                     }
                 ) { innerPadding ->
-                    // Fix: Content respects the bottom bar padding
+                    // Fix #2: Content Visibility
                     NavHost(
                         navController = navController,
                         startDestination = "dashboard",
@@ -147,7 +161,19 @@ fun CoinTrackerApp(viewModel: CoinTrackerViewModel = viewModel()) {
                         composable("dashboard") { DashboardScreen(viewModel) }
                         composable("analytics") { AnalyticsScreen(viewModel) }
                         composable("history") { HistoryScreen(viewModel) }
-                        composable("settings") { SettingsScreen(viewModel) }
+                        composable("settings") { SettingsScreen(viewModel, navController) }
+                        // Fix #4: Admin Route
+                        composable("admin") {
+                            AdminScreen(
+                                session = uiState.session,
+                                stats = uiState.adminStats,
+                                users = uiState.adminUsers,
+                                loading = uiState.loading,
+                                onRefresh = { viewModel.loadAdmin() },
+                                onDeleteUser = { viewModel.deleteUser(it) },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
                     }
                 }
             }
@@ -160,9 +186,11 @@ fun CoinTrackerApp(viewModel: CoinTrackerViewModel = viewModel()) {
 // ----------------------------------------------------------------
 @Composable
 fun DashboardScreen(viewModel: CoinTrackerViewModel) {
-    val balance by viewModel.balance.collectAsState()
-    val settings by viewModel.settings.collectAsState()
-    val loading by viewModel.loading.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
+    val balance = uiState.profileEnvelope?.balance ?: 0
+    val settings = uiState.profileEnvelope?.settings ?: defaultSettings()
+    val loading = uiState.loading
+    val stats = uiState.profileEnvelope?.dashboardStats
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -174,62 +202,78 @@ fun DashboardScreen(viewModel: CoinTrackerViewModel) {
             Text("Coin Tracker", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Fix #6: Counters above Balance
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                StatCard("Today", "${stats?.today ?: 0}", Modifier.weight(1f))
+                Spacer(modifier = Modifier.width(8.dp))
+                StatCard("Week", "${stats?.week ?: 0}", Modifier.weight(1f))
+                Spacer(modifier = Modifier.width(8.dp))
+                StatCard("Month", "${stats?.month ?: 0}", Modifier.weight(1f))
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Balance Card
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(24.dp)) {
                     Text("Total Balance", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-                    Text("$ $balance", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = NeonCyan)
+                    Text("$ $balance", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Bold, color = WebPrimary)
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // Fix #5: Progress Bar
                     val progress = if (settings.goal > 0) balance.toFloat() / settings.goal.toFloat() else 0f
                     LinearProgressIndicator(
-                        progress = progress.coerceIn(0f, 1f),
-                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
-                        color = NeonPurple,
-                        trackColor = Color.White.copy(alpha = 0.1f)
+                        progress = { progress.coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(10.dp)
+                            .clip(RoundedCornerShape(5.dp)),
+                        color = WebSuccess,
+                        trackColor = Color.White.copy(alpha = 0.2f),
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("Goal: $ ${settings.goal} (${(progress * 100).toInt()}%)", style = MaterialTheme.typography.bodySmall, color = Color.White)
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                StatCard("Daily", "$0", Modifier.weight(1f)) // Placeholder values
-                Spacer(modifier = Modifier.width(8.dp))
-                StatCard("Weekly", "$0", Modifier.weight(1f)) // Placeholder values
-                Spacer(modifier = Modifier.width(8.dp))
-                StatCard("Monthly", "$0", Modifier.weight(1f)) // Placeholder values
-            }
-
             Spacer(modifier = Modifier.height(24.dp))
             Text("Quick Actions", style = MaterialTheme.typography.titleMedium, color = Color.White)
             Spacer(modifier = Modifier.height(8.dp))
 
-            settings.quickActions.forEach { action ->
-                GlassCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .clickable { viewModel.addTransaction(if (action.isPositive) action.value else -action.value, action.text) }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+            // Fix #7: Vertical List (Serial Order)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                settings.quickActions.forEach { action ->
+                    GlassCard(
+                        onClick = {
+                            viewModel.addTransaction(
+                                if (action.isPositive) action.value else -action.value,
+                                action.text,
+                                null
+                            )
+                        }
                     ) {
-                        Text(action.text, color = Color.White)
-                        Text(if (action.isPositive) "+$${action.value}" else "-$${action.value}", color = if (action.isPositive) NeonCyan else Color.Red)
+                        Row(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(action.text, color = Color.White, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                if (action.isPositive) "+$${action.value}" else "-$${action.value}",
+                                color = if (action.isPositive) WebSuccess else WebDanger,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                        }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(80.dp)) // Extra space for scroll
+            Spacer(modifier = Modifier.height(80.dp))
         }
 
         if (loading) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
-                contentAlignment = Alignment.Center
-            ) { CircularProgressIndicator(color = NeonPurple) }
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = WebPrimary)
         }
     }
 }
@@ -239,7 +283,7 @@ fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
     GlassCard(modifier = modifier) {
         Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(label, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-            Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
         }
     }
 }
@@ -249,30 +293,40 @@ fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
 // ----------------------------------------------------------------
 @Composable
 fun AnalyticsScreen(viewModel: CoinTrackerViewModel) {
-    val transactions by viewModel.transactions.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
+    val transactions = uiState.profileEnvelope?.transactions ?: emptyList()
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier
+        .fillMaxSize()
+        .padding(16.dp)) {
         Text("Analytics", style = MaterialTheme.typography.headlineMedium, color = Color.White)
         Spacer(modifier = Modifier.height(24.dp))
 
-        GlassCard(modifier = Modifier.fillMaxWidth().height(250.dp).padding(8.dp)) {
+        // Fix #8: Graph Display
+        GlassCard(modifier = Modifier
+            .fillMaxWidth()
+            .height(300.dp)
+            .padding(4.dp)) {
             if (transactions.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No data", color = Color.Gray) }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No data to display", color = Color.Gray) }
             } else {
-                Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                Canvas(modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp)) {
                     val points = transactions.runningFold(0f) { sum, tx -> sum + tx.amount.toFloat() }
                     if (points.isNotEmpty()) {
                         val max = points.maxOrNull() ?: 1f
                         val min = points.minOrNull() ?: 0f
-                        val range = max - min
+                        val range = (max - min).coerceAtLeast(1f)
                         val widthPerPoint = size.width / (points.size - 1).coerceAtLeast(1)
+
                         val path = Path()
                         points.forEachIndexed { i, balance ->
                             val x = i * widthPerPoint
-                            val y = size.height - ((balance - min) / range.coerceAtLeast(1f) * size.height)
+                            val y = size.height - ((balance - min) / range * size.height)
                             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                         }
-                        drawPath(path = path, color = NeonCyan, style = Stroke(width = 3.dp.toPx()))
+                        drawPath(path = path, color = WebPrimary, style = Stroke(width = 4.dp.toPx()))
                     }
                 }
             }
@@ -285,9 +339,11 @@ fun AnalyticsScreen(viewModel: CoinTrackerViewModel) {
 // ----------------------------------------------------------------
 @Composable
 fun HistoryScreen(viewModel: CoinTrackerViewModel) {
-    val transactions by viewModel.transactions.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
+    val transactions = uiState.profileEnvelope?.transactions ?: emptyList()
     var selectedTx by remember { mutableStateOf<Transaction?>(null) }
 
+    // Fix #9: Transaction Details & Delete option
     if (selectedTx != null) {
         AlertDialog(
             onDismissRequest = { selectedTx = null },
@@ -296,15 +352,18 @@ fun HistoryScreen(viewModel: CoinTrackerViewModel) {
             text = {
                 Column {
                     Text("Source: ${selectedTx?.source}", color = Color.White)
-                    Text("Amount: ${selectedTx?.amount}", color = Color.White)
-                    Text("Date: ${selectedTx?.date}", color = Color.White)
+                    Text(
+                        "Amount: ${selectedTx?.amount}",
+                        color = if ((selectedTx?.amount ?: 0) >= 0) WebSuccess else WebDanger
+                    )
+                    Text("Date: ${selectedTx?.date?.take(10)}", color = Color.Gray)
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteTransaction(selectedTx!!.id)
                     selectedTx = null
-                }) { Text("Delete", color = Color.Red) }
+                }) { Text("Delete", color = WebDanger) }
             },
             dismissButton = {
                 TextButton(onClick = { selectedTx = null }) { Text("Close", color = Color.Gray) }
@@ -312,17 +371,26 @@ fun HistoryScreen(viewModel: CoinTrackerViewModel) {
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier
+        .fillMaxSize()
+        .padding(16.dp)) {
         Text("History", style = MaterialTheme.typography.headlineMedium, color = Color.White)
         Spacer(modifier = Modifier.height(16.dp))
 
-        LazyColumn {
+        // Fix #9: LazyColumn for Scrolling ("Pagination")
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 80.dp)
+        ) {
             items(transactions.reversed()) { tx ->
                 GlassCard(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { selectedTx = tx }
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { selectedTx = tx }
                 ) {
                     Row(
-                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -332,8 +400,9 @@ fun HistoryScreen(viewModel: CoinTrackerViewModel) {
                         }
                         Text(
                             text = if (tx.amount >= 0) "+${tx.amount}" else "${tx.amount}",
-                            color = if (tx.amount >= 0) NeonCyan else Color.Red,
-                            fontWeight = FontWeight.Bold
+                            color = if (tx.amount >= 0) WebSuccess else WebDanger,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
                         )
                     }
                 }
@@ -343,59 +412,186 @@ fun HistoryScreen(viewModel: CoinTrackerViewModel) {
 }
 
 // ----------------------------------------------------------------
-// 5. SETTINGS SCREEN (Fixed Admin & Profile)
+// 5. SETTINGS SCREEN
 // ----------------------------------------------------------------
 @Composable
-fun SettingsScreen(viewModel: CoinTrackerViewModel) {
-    val session by viewModel.userSession.collectAsState()
+fun SettingsScreen(viewModel: CoinTrackerViewModel, navController: androidx.navigation.NavController) {
+    val uiState by viewModel.uiState.collectAsState()
+    val session = uiState.session
+    val settings = uiState.profileEnvelope?.settings ?: defaultSettings()
     val context = LocalContext.current
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    var showProfileDialog by remember { mutableStateOf(false) }
+    var goalInput by remember { mutableStateOf(settings.goal.toString()) }
+
+    // Quick Action State
+    var actionText by remember { mutableStateOf("") }
+    var actionValue by remember { mutableStateOf("") }
+    var actionIsPositive by remember { mutableStateOf(true) }
+
+    // Fix #3: Profile Dialog
+    if (showProfileDialog) {
+        AlertDialog(
+            onDismissRequest = { showProfileDialog = false },
+            containerColor = Color(0xFF1E1E1E),
+            title = { Text("Switch Profile", color = Color.White) },
+            text = {
+                LazyColumn {
+                    items(uiState.profiles) { profile ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.switchProfile(profile)
+                                    showProfileDialog = false
+                                }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = WebPrimary)
+                            Spacer(Modifier.width(12.dp))
+                            Text(profile, color = Color.White)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showProfileDialog = false }) { Text("Cancel", color = Color.Gray) } }
+        )
+    }
+
+    Column(modifier = Modifier
+        .fillMaxSize()
+        .padding(16.dp)
+        .verticalScroll(rememberScrollState())) {
+
         Text("Settings", style = MaterialTheme.typography.headlineMedium, color = Color.White)
         Spacer(modifier = Modifier.height(16.dp))
 
+        // --- Profile Section ---
         GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("User Profile", style = MaterialTheme.typography.titleMedium, color = NeonPurple)
-                Divider(color = GlassBorder, modifier = Modifier.padding(vertical = 8.dp))
+                Text("User Profile", style = MaterialTheme.typography.titleMedium, color = WebPrimary)
+                Divider(color = Color.White.copy(alpha=0.1f), modifier = Modifier.padding(vertical = 8.dp))
                 Text("Username: ${session?.username}", color = Color.White)
                 Text("Role: ${session?.role}", color = Color.Gray)
             }
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Fix: Switch Profile Button
-        GlassCard(modifier = Modifier.fillMaxWidth().clickable {
-            // Add switch logic here or show toast
-            Toast.makeText(context, "Feature coming soon", Toast.LENGTH_SHORT).show()
-        }) {
+        Spacer(modifier = Modifier.height(10.dp))
+        GlassCard(onClick = { showProfileDialog = true }) {
             Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Person, contentDescription = null, tint = NeonCyan)
+                Icon(Icons.Default.Person, contentDescription = null, tint = WebPrimary)
                 Spacer(modifier = Modifier.width(16.dp))
                 Text("Switch Profile", color = Color.White)
             }
         }
 
+        // --- Fix #10: Goal Setting ---
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Goal Setting", style = MaterialTheme.typography.titleMedium, color = Color.White)
         Spacer(modifier = Modifier.height(8.dp))
+        GlassCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                OutlinedTextField(
+                    value = goalInput,
+                    onValueChange = { goalInput = it },
+                    label = { Text("Target Amount", color = Color.Gray) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                        focusedBorderColor = WebPrimary, unfocusedBorderColor = Color.Gray
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        val newGoal = goalInput.toIntOrNull()
+                        if (newGoal != null) {
+                            viewModel.updateSettings(settings.copy(goal = newGoal))
+                            Toast.makeText(context, "Goal Updated", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = WebPrimary),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Update Goal") }
+            }
+        }
 
-        // Fix: Admin Panel (Only visible if admin)
+        // --- Fix #10: Manage Quick Actions ---
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Manage Quick Actions", style = MaterialTheme.typography.titleMedium, color = Color.White)
+        Spacer(modifier = Modifier.height(8.dp))
+        GlassCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Add New Action", color = Color.Gray, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = actionText, onValueChange = { actionText = it },
+                    label = { Text("Label", color = Color.Gray) },
+                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = WebPrimary, unfocusedBorderColor = Color.Gray),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = actionValue, onValueChange = { actionValue = it },
+                        label = { Text("Amount", color = Color.Gray) },
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = WebPrimary, unfocusedBorderColor = Color.Gray)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { actionIsPositive = !actionIsPositive },
+                        colors = ButtonDefaults.buttonColors(containerColor = if (actionIsPositive) WebSuccess else WebDanger),
+                        modifier = Modifier.align(Alignment.CenterVertically)
+                    ) { Text(if (actionIsPositive) "+" else "-") }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        val valInt = actionValue.toIntOrNull()
+                        if (actionText.isNotEmpty() && valInt != null) {
+                            viewModel.addQuickAction(QuickAction(actionText, valInt, actionIsPositive))
+                            actionText = ""; actionValue = ""
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = WebPrimary)
+                ) { Text("Add Action") }
+
+                Divider(color = Color.White.copy(alpha=0.1f), modifier = Modifier.padding(vertical = 12.dp))
+
+                // List existing actions
+                settings.quickActions.forEachIndexed { index, action ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("${action.text} (${if(action.isPositive)+action.value else -action.value})", color = Color.White, fontSize = 14.sp)
+                        IconButton(onClick = { viewModel.deleteQuickAction(index) }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = WebDanger)
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- Admin & Logout ---
         if (session?.role.equals("admin", ignoreCase = true)) {
-            GlassCard(modifier = Modifier.fillMaxWidth().clickable {
-                Toast.makeText(context, "Opening Admin Panel...", Toast.LENGTH_SHORT).show()
-                // Navigate to admin screen if you have one
+            GlassCard(onClick = {
+                viewModel.loadAdmin()
+                navController.navigate("admin")
             }) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Lock, contentDescription = null, tint = Color.Red)
+                    Icon(Icons.Default.Lock, contentDescription = null, tint = WebDanger)
                     Spacer(modifier = Modifier.width(16.dp))
                     Text("Admin Panel", color = Color.White)
                 }
             }
         } else {
-            // Show disabled or just hide it. User asked to "see" permission issues
-            GlassCard(modifier = Modifier.fillMaxWidth().clickable {
-                Toast.makeText(context, "Insufficient Permissions", Toast.LENGTH_SHORT).show()
-            }) {
+            GlassCard(onClick = { Toast.makeText(context, "Insufficient Permissions", Toast.LENGTH_SHORT).show() }) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Lock, contentDescription = null, tint = Color.Gray)
                     Spacer(modifier = Modifier.width(16.dp))
@@ -404,16 +600,15 @@ fun SettingsScreen(viewModel: CoinTrackerViewModel) {
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
-
+        Spacer(modifier = Modifier.height(24.dp))
         OutlinedButton(
             onClick = { viewModel.logout() },
             modifier = Modifier.fillMaxWidth(),
-            border = BorderStroke(1.dp, Color.Red),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red)
-        ) {
-            Text("Logout")
-        }
+            border = BorderStroke(1.dp, WebDanger),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = WebDanger)
+        ) { Text("Logout") }
+
+        Spacer(modifier = Modifier.height(80.dp))
     }
 }
 
@@ -421,12 +616,11 @@ fun SettingsScreen(viewModel: CoinTrackerViewModel) {
 // 6. LOGIN / REGISTER SCREEN
 // ----------------------------------------------------------------
 @Composable
-fun LoginScreen(viewModel: CoinTrackerViewModel) {
+fun LoginNavigation(viewModel: CoinTrackerViewModel) {
+    var isRegisterMode by remember { mutableStateOf(false) }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var isRegisterMode by remember { mutableStateOf(false) }
-    val loading by viewModel.loading.collectAsState()
-    val error by viewModel.error.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         GlassCard(modifier = Modifier.padding(32.dp).fillMaxWidth()) {
@@ -443,7 +637,7 @@ fun LoginScreen(viewModel: CoinTrackerViewModel) {
                     label = { Text("Username", color = Color.Gray) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White, unfocusedTextColor = Color.White,
-                        focusedBorderColor = NeonPurple, unfocusedBorderColor = Color.Gray
+                        focusedBorderColor = WebPrimary, unfocusedBorderColor = Color.Gray
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -454,14 +648,14 @@ fun LoginScreen(viewModel: CoinTrackerViewModel) {
                     visualTransformation = PasswordVisualTransformation(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White, unfocusedTextColor = Color.White,
-                        focusedBorderColor = NeonPurple, unfocusedBorderColor = Color.Gray
+                        focusedBorderColor = WebPrimary, unfocusedBorderColor = Color.Gray
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                if (error != null) {
+                if (uiState.error != null) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(error!!, color = Color.Red, fontSize = 12.sp)
+                    Text(uiState.error ?: "", color = WebDanger, fontSize = 12.sp)
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -469,19 +663,20 @@ fun LoginScreen(viewModel: CoinTrackerViewModel) {
                 Button(
                     onClick = { if (isRegisterMode) viewModel.register(username, password) else viewModel.login(username, password) },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = NeonPurple),
-                    enabled = !loading
+                    colors = ButtonDefaults.buttonColors(containerColor = WebPrimary),
+                    enabled = !uiState.loading
                 ) {
-                    if (loading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                    if (uiState.loading) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
                     else Text(if (isRegisterMode) "Register" else "Login")
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // Fix #13: Toggle Button
                 TextButton(onClick = { isRegisterMode = !isRegisterMode }) {
                     Text(
                         text = if (isRegisterMode) "Already have an account? Login" else "Don't have an account? Register",
-                        color = NeonCyan
+                        color = WebPrimary
                     )
                 }
             }

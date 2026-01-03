@@ -1,7 +1,6 @@
 package com.cointracker.mobile.ui
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.cointracker.mobile.data.AdminStats
 import com.cointracker.mobile.data.AdminUserRow
@@ -11,10 +10,12 @@ import com.cointracker.mobile.data.QuickAction
 import com.cointracker.mobile.data.Settings
 import com.cointracker.mobile.data.Transaction
 import com.cointracker.mobile.data.UserSession
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 data class AppUiState(
     val session: UserSession? = null,
@@ -26,7 +27,12 @@ data class AppUiState(
     val adminUsers: List<AdminUserRow> = emptyList()
 )
 
-class CoinTrackerViewModel(private val repo: FirestoreRepository) : ViewModel() {
+// FIX: Added @HiltViewModel and @Inject constructor
+@HiltViewModel
+class CoinTrackerViewModel @Inject constructor(
+    private val repo: FirestoreRepository
+) : ViewModel() {
+
     private val _uiState = MutableStateFlow(AppUiState())
     val uiState: StateFlow<AppUiState> = _uiState
 
@@ -59,6 +65,7 @@ class CoinTrackerViewModel(private val repo: FirestoreRepository) : ViewModel() 
 
     fun logout() {
         _uiState.value = AppUiState()
+        repo.logout()
     }
 
     fun refreshData() {
@@ -220,15 +227,4 @@ class CoinTrackerViewModel(private val repo: FirestoreRepository) : ViewModel() 
             }
         }
     }
-
-    companion object {
-        val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                val repo = FirestoreRepository()
-                @Suppress("UNCHECKED_CAST")
-                return CoinTrackerViewModel(repo) as T
-            }
-        }
-    }
 }
-

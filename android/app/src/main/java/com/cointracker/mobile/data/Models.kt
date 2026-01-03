@@ -21,9 +21,9 @@ data class Settings(
 )
 
 data class QuickAction(
-    val text: String,
-    val value: Int,
-    val isPositive: Boolean
+    val text: String = "",
+    val value: Int = 0,
+    val isPositive: Boolean = true
 )
 
 data class DashboardStats(
