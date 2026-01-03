@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.cointracker.mobile.data.ProfileEnvelope
 import com.cointracker.mobile.data.UserSession
 import com.cointracker.mobile.ui.components.GlassCard
+import androidx.compose.foundation.layout.width
 
 @Composable
 fun DashboardScreen(

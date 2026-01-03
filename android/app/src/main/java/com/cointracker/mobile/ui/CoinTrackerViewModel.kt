@@ -65,7 +65,7 @@ class CoinTrackerViewModel(private val repo: FirestoreRepository) : ViewModel() 
         val session = _uiState.value.session ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
-            val result = repo.loadProfile(session)
+            val result = repo.loadProfile(session.userId, session.currentProfile)
             _uiState.update {
                 if (result.isSuccess) it.copy(profileEnvelope = result.getOrThrow(), loading = false)
                 else it.copy(error = result.exceptionOrNull()?.message, loading = false)
@@ -231,3 +231,4 @@ class CoinTrackerViewModel(private val repo: FirestoreRepository) : ViewModel() 
         }
     }
 }
+

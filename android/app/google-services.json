@@ -8,9 +8,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:458179656219:android:8d4b58e31daaf8106896be",
+        "mobilesdk_app_id": "1:458179656219:android:afa8d30369fd55ad6896be",
         "android_client_info": {
-          "package_name": "com.ifti.cointracker"
+          "package_name": "com.cointracker.mobile"
         }
       },
       "oauth_client": [],

@@ -1,74 +1,116 @@
 package com.cointracker.mobile.data
 
-import com.google.firebase.FirebaseApp
+import com.cointracker.mobile.domain.AchievementCalculator
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class FirestoreRepository {
+@Singleton
+class FirestoreRepository @Inject constructor() {
+
+    private val auth = FirebaseAuth.getInstance()
+    private val client = OkHttpClient()
+
+    // ⚠️ CONFIRM THIS IS YOUR CORRECT GOOGLE CLOUD IP
+    private val BASE_URL = "http://34.19.86.210"
+
     private val db: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
     private val usersRef get() = db.collection("users")
     private val userDataRef get() = db.collection("user_data")
-    private val hasher = WerkzeugPasswordHasher()
 
-    suspend fun register(username: String, password: String): Result<Unit> = runCatching {
-        val usernameLower = username.lowercase().trim()
-        val existing = usersRef.whereEqualTo("username_lower", usernameLower).limit(1).get().await()
-        if (!existing.isEmpty) throw IllegalStateException("Username already exists")
+    // ----------------------------------------------------------------
+    // AUTHENTICATION
+    // ----------------------------------------------------------------
 
-        val userId = UUID.randomUUID().toString()
-        val hash = hasher.hash(password)
+    suspend fun login(username: String, password: String): Result<UserSession> = withContext(Dispatchers.IO) {
+        runCatching {
+            val json = JSONObject().apply {
+                put("username", username)
+                put("password", password)
+            }
 
-        usersRef.document(userId).set(
-            mapOf(
-                "username" to username,
-                "username_lower" to usernameLower,
-                "password_hash" to hash,
-                "created_at" to nowIso(),
-                "role" to "user"
-            )
-        ).await()
+            val body = json.toString().toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("$BASE_URL/api/mobile-login")
+                .post(body)
+                .build()
 
-        val profileData = mapOf(
-            "transactions" to emptyList<Map<String, Any>>(),
-            "settings" to settingsToMap(defaultSettings()),
-            "last_updated" to nowIso()
-        )
-        userDataRef.document(userId).set(
-            mapOf(
-                "profiles" to mapOf("Default" to profileData),
-                "last_active_profile" to "Default"
-            )
-        ).await()
+            val response = client.newCall(request).execute()
+            val responseBody = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) throw Exception("Login failed: ${response.code}")
+
+            val jsonResponse = JSONObject(responseBody)
+            if (!jsonResponse.getBoolean("success")) {
+                throw Exception(jsonResponse.optString("error", "Unknown login error"))
+            }
+
+            val token = jsonResponse.getString("token")
+            auth.signInWithCustomToken(token).await()
+
+            val userId = auth.currentUser!!.uid
+            val userDoc = usersRef.document(userId).get().await()
+            val role = userDoc.getString("role") ?: "user"
+            val userDataDoc = userDataRef.document(userId).get().await()
+            val lastProfile = userDataDoc.getString("last_active_profile") ?: "Default"
+
+            // FIXED: Using positional arguments to match your UserSession class
+            UserSession(userId, username, role, lastProfile)
+        }
     }
 
-    suspend fun login(username: String, password: String): Result<UserSession> = runCatching {
-        val usernameLower = username.lowercase().trim()
-        val query = usersRef.whereEqualTo("username_lower", usernameLower).limit(1).get().await()
-        if (query.isEmpty) throw IllegalArgumentException("Invalid username or password")
+    suspend fun register(username: String, password: String): Result<UserSession> = withContext(Dispatchers.IO) {
+        runCatching {
+            val json = JSONObject().apply {
+                put("username", username)
+                put("password", password)
+            }
 
-        val doc = query.documents.first()
-        val data = doc.data ?: throw IllegalArgumentException("Invalid user record")
-        val storedHash = data["password_hash"] as? String ?: ""
-        if (!hasher.verify(password, storedHash)) throw IllegalArgumentException("Invalid username or password")
+            val body = json.toString().toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("$BASE_URL/api/mobile-register")
+                .post(body)
+                .build()
 
-        val profileDoc = userDataRef.document(doc.id).get().await()
-        val profileData = profileDoc.data
-        val lastProfile = profileData?.get("last_active_profile") as? String ?: "Default"
-        UserSession(
-            userId = doc.id,
-            username = data["username"] as? String ?: username,
-            role = data["role"] as? String ?: "user",
-            currentProfile = lastProfile
-        )
+            val response = client.newCall(request).execute()
+            val responseBody = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) throw Exception("Registration failed: ${response.code}")
+
+            val jsonResponse = JSONObject(responseBody)
+            if (!jsonResponse.getBoolean("success")) throw Exception(jsonResponse.getString("error"))
+
+            val token = jsonResponse.getString("token")
+            auth.signInWithCustomToken(token).await()
+
+            UserSession(auth.currentUser!!.uid, username, "user", "Default")
+        }
     }
 
-    suspend fun loadProfile(session: UserSession): Result<ProfileEnvelope> = runCatching {
-        val (transactions, settings) = getData(session.userId, session.currentProfile)
-        buildEnvelope(session.currentProfile, transactions, settings)
+    fun logout() {
+        auth.signOut()
+    }
+
+    // ----------------------------------------------------------------
+    // DATA OPERATIONS
+    // ----------------------------------------------------------------
+
+    suspend fun loadProfile(userId: String, profileName: String): Result<ProfileEnvelope> = runCatching {
+        val (transactions, settings) = getData(userId, profileName)
+        buildEnvelope(profileName, transactions, settings)
     }
 
     suspend fun listProfiles(session: UserSession): Result<List<String>> = runCatching {
@@ -79,7 +121,8 @@ class FirestoreRepository {
     }
 
     suspend fun switchProfile(session: UserSession, profile: String): Result<UserSession> = runCatching {
-        userDataRef.document(session.userId).set(mapOf("last_active_profile" to profile), com.google.firebase.firestore.SetOptions.merge()).await()
+        userDataRef.document(session.userId).update("last_active_profile", profile).await()
+        // FIXED: Changed 'lastActiveProfile' to 'currentProfile'
         session.copy(currentProfile = profile)
     }
 
@@ -88,6 +131,7 @@ class FirestoreRepository {
         val data = doc.data?.toMutableMap() ?: mutableMapOf()
         val profiles = (data["profiles"] as? Map<*, *>)?.toMutableMap() ?: mutableMapOf()
         if (profiles.containsKey(profile)) throw IllegalStateException("Profile already exists")
+
         val newProfile = mapOf(
             "transactions" to emptyList<Map<String, Any>>(),
             "settings" to settingsToMap(defaultSettings()),
@@ -96,18 +140,21 @@ class FirestoreRepository {
         profiles[profile] = newProfile
         data["profiles"] = profiles
         data["last_active_profile"] = profile
+
         userDataRef.document(session.userId).set(data).await()
         profiles.keys.map { it.toString() }
     }
 
     suspend fun addTransaction(session: UserSession, amount: Int, source: String, dateIso: String?): Result<ProfileEnvelope> = runCatching {
+        // FIXED: Changed 'lastActiveProfile' to 'currentProfile'
         val profileName = session.currentProfile
         val (transactions, settings) = getData(session.userId, profileName)
         val tx = Transaction(
             id = UUID.randomUUID().toString(),
             date = dateIso ?: nowIso(),
             amount = amount,
-            source = source
+            source = source,
+            previousBalance = 0
         )
         val updated = recalcBalances(transactions + tx)
         saveProfile(session.userId, profileName, updated, settings)
@@ -159,11 +206,22 @@ class FirestoreRepository {
     }
 
     suspend fun importData(session: UserSession, transactions: List<Transaction>, settings: Settings): Result<ProfileEnvelope> = runCatching {
+        // Use 'currentProfile' or 'lastActiveProfile' depending on your Model
         val profileName = session.currentProfile
+
+        // Recalculate balances to ensure data integrity
         val validatedTx = recalcBalances(transactions)
+
+        // Save to database
         saveProfile(session.userId, profileName, validatedTx, settings)
+
+        // Return updated UI data
         buildEnvelope(profileName, validatedTx, settings)
     }
+
+    // ----------------------------------------------------------------
+    // ADMIN & HELPERS
+    // ----------------------------------------------------------------
 
     suspend fun loadAdminStats(): Result<AdminStats> = runCatching {
         val usersSnapshot = usersRef.get().await()
@@ -172,11 +230,13 @@ class FirestoreRepository {
         val thirtyDaysAgo = Instant.now().minusSeconds(30L * 24 * 3600)
         val signupsByDay = mutableMapOf<String, Int>()
         usersSnapshot.documents.forEach { doc ->
-            val created = doc.getString("created_at") ?: return@forEach
-            val instant = runCatching { Instant.parse(created) }.getOrNull() ?: return@forEach
-            if (instant.isAfter(thirtyDaysAgo)) {
-                val day = instant.atZone(ZoneOffset.UTC).toLocalDate().toString()
-                signupsByDay[day] = (signupsByDay[day] ?: 0) + 1
+            val created = doc.getString("created_at")
+            if (created != null) {
+                val instant = runCatching { Instant.parse(created) }.getOrNull()
+                if (instant != null && instant.isAfter(thirtyDaysAgo)) {
+                    val day = instant.atZone(ZoneOffset.UTC).toLocalDate().toString()
+                    signupsByDay[day] = (signupsByDay[day] ?: 0) + 1
+                }
             }
         }
 
@@ -193,19 +253,9 @@ class FirestoreRepository {
         val userData = userDataRef.get().await()
         userData.documents.forEach { doc ->
             val payload = doc.data ?: return@forEach
-            val profiles = payload["profiles"] as? Map<*, *>
-            if (profiles != null) {
-                profiles.values.forEach { profileObj ->
-                    val profile = profileObj as? Map<*, *> ?: return@forEach
-                    val txns = parseTransactions(profile["transactions"]) ?: emptyList()
-                    totalTransactions += txns.size
-                    totalCoins += txns.sumOf { it.amount }
-                }
-            } else {
-                val txns = parseTransactions(payload["transactions"]) ?: emptyList()
-                totalTransactions += txns.size
-                totalCoins += txns.sumOf { it.amount }
-            }
+            val txns = extractAllTransactions(payload)
+            totalTransactions += txns.size
+            totalCoins += txns.sumOf { it.amount }
         }
 
         AdminStats(totalUsers, totalCoins, totalTransactions, labels, data)
@@ -214,6 +264,7 @@ class FirestoreRepository {
     suspend fun loadAdminUsers(): Result<List<AdminUserRow>> = runCatching {
         val usersSnapshot = usersRef.orderBy("username_lower").get().await()
         val rows = mutableMapOf<String, AdminUserRow>()
+
         usersSnapshot.documents.forEach { doc ->
             val data = doc.data ?: return@forEach
             rows[doc.id] = AdminUserRow(
@@ -230,27 +281,14 @@ class FirestoreRepository {
         userData.documents.forEach { doc ->
             val target = rows[doc.id] ?: return@forEach
             val payload = doc.data ?: return@forEach
-            var balance = 0
-            var txnCount = 0
-            var lastUpdated = target.lastUpdated
+            val txns = extractAllTransactions(payload)
+            val balance = txns.sumOf { it.amount }
 
-            val profiles = payload["profiles"] as? Map<*, *>
-            if (profiles != null) {
-                profiles.values.forEach { profileObj ->
-                    val profile = profileObj as? Map<*, *> ?: return@forEach
-                    val txns = parseTransactions(profile["transactions"]) ?: emptyList()
-                    balance += txns.sumOf { it.amount }
-                    txnCount += txns.size
-                    val lu = profile["last_updated"] as? String
-                    if (lu != null && (lastUpdated == "N/A" || lu > lastUpdated)) lastUpdated = lu
-                }
-            } else {
-                val txns = parseTransactions(payload["transactions"]) ?: emptyList()
-                balance += txns.sumOf { it.amount }
-                txnCount += txns.size
-            }
-
-            rows[doc.id] = target.copy(balance = balance, txnCount = txnCount, lastUpdated = lastUpdated)
+            rows[doc.id] = target.copy(
+                balance = balance,
+                txnCount = txns.size,
+                lastUpdated = nowIso()
+            )
         }
 
         rows.values.toList()
@@ -261,10 +299,29 @@ class FirestoreRepository {
         userDataRef.document(userId).delete().await()
     }
 
+    private fun extractAllTransactions(payload: Map<String, Any>): List<Transaction> {
+        val allTx = mutableListOf<Transaction>()
+        val profiles = payload["profiles"] as? Map<*, *>
+        if (profiles != null) {
+            profiles.values.forEach { p ->
+                val pMap = p as? Map<*, *> ?: return@forEach
+                parseTransactions(pMap["transactions"])?.let { allTx.addAll(it) }
+            }
+        } else {
+            parseTransactions(payload["transactions"])?.let { allTx.addAll(it) }
+        }
+        return allTx
+    }
+
+    // ----------------------------------------------------------------
+    // PRIVATE HELPERS
+    // ----------------------------------------------------------------
+
     private suspend fun getData(userId: String, profile: String): Pair<List<Transaction>, Settings> {
         val doc = userDataRef.document(userId).get().await()
         val data = doc.data ?: emptyMap<String, Any>()
         val profiles = data["profiles"] as? Map<*, *>
+
         if (profiles != null) {
             val profileData = profiles[profile] as? Map<*, *> ?: emptyMap<String, Any>()
             val transactions = parseTransactions(profileData["transactions"]) ?: emptyList()
@@ -280,6 +337,7 @@ class FirestoreRepository {
         val doc = userDataRef.document(userId).get().await()
         val existing = doc.data?.toMutableMap() ?: mutableMapOf()
         val profiles = (existing["profiles"] as? Map<*, *>)?.toMutableMap() ?: mutableMapOf()
+
         profiles[profile] = mapOf(
             "transactions" to transactions.map { transactionToMap(it) },
             "settings" to settingsToMap(settings),
@@ -293,6 +351,7 @@ class FirestoreRepository {
     private fun buildEnvelope(profileName: String, transactions: List<Transaction>, settings: Settings): ProfileEnvelope {
         val balance = transactions.sumOf { it.amount }
         val goal = settings.goal
+
         val today = LocalDate.now(ZoneOffset.UTC)
         val weekStart = today.minusDays(today.dayOfWeek.ordinal.toLong())
         val monthStart = today.withDayOfMonth(1)
@@ -343,16 +402,10 @@ class FirestoreRepository {
 
         val achievements = AchievementCalculator().calculate(transactions, balance, goal)
 
-        val allSources = transactions.map { it.source }.toSet().sorted()
-        val settingsEnriched = settings.copy(
-            firebaseAvailable = true,
-            allSources = allSources
-        )
-
         return ProfileEnvelope(
             profile = profileName,
             transactions = transactions,
-            settings = settingsEnriched,
+            settings = settings.copy(firebaseAvailable = true),
             balance = balance,
             goal = goal,
             progress = if (goal > 0) minOf(100, ((balance.toDouble() / goal) * 100).toInt()) else 0,
@@ -379,8 +432,7 @@ class FirestoreRepository {
                 date = map["date"] as? String ?: nowIso(),
                 amount = (map["amount"] as? Number)?.toInt() ?: 0,
                 source = map["source"] as? String ?: "",
-                previousBalance = (map["previous_balance"] as? Number)?.toInt()
-                    ?: (map["previousBalance"] as? Number)?.toInt() ?: 0
+                previousBalance = (map["previous_balance"] as? Number)?.toInt() ?: 0
             )
         }
     }
@@ -400,6 +452,14 @@ class FirestoreRepository {
         }
         return Settings(goal, darkMode, quickActions, firebaseAvailable = true)
     }
+
+    private fun defaultSettings() = Settings(13500, false, defaultQuickActions(), true)
+
+    private fun defaultQuickActions() = listOf(
+        QuickAction("Salary", 5000, true),
+        QuickAction("Food", 100, false),
+        QuickAction("Transport", 50, false)
+    )
 
     private fun settingsToMap(settings: Settings): Map<String, Any> = mapOf(
         "goal" to settings.goal,

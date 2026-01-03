@@ -61,7 +61,7 @@ fun SettingsScreen(
                 TextButton(onClick = { actionType.value = false }) { Text(if (!actionType.value) "Expense ✓" else "Expense") }
             }
             Button(onClick = {
-                val amt = actionAmount.value.toIntOrNull() ?: return@GlassCard
+                val amt = actionAmount.value.toIntOrNull() ?: return@Button
                 onAddQuickAction(QuickAction(actionText.value, amt, actionType.value))
             }) { Text("Add Action") }
             Spacer(Modifier.height(8.dp))
