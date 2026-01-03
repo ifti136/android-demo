@@ -1,23 +1,12 @@
 package com.cointracker.mobile.ui.screens
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.cointracker.mobile.data.ProfileEnvelope
 import com.cointracker.mobile.data.QuickAction
@@ -31,56 +20,51 @@ fun SettingsScreen(
     onAddQuickAction: (QuickAction) -> Unit,
     onDeleteQuickAction: (Int) -> Unit,
     onCreateProfile: (String) -> Unit,
+    onImportData: (String) -> Unit,
+    onExportData: () -> Unit,
     onBack: () -> Unit
 ) {
-    val goalInput = remember { mutableStateOf(envelope?.settings?.goal?.toString() ?: "13500") }
-    val actionText = remember { mutableStateOf("") }
-    val actionAmount = remember { mutableStateOf("") }
-    val actionType = remember { mutableStateOf(true) }
-    val newProfileName = remember { mutableStateOf("") }
+    var goalInput by remember { mutableStateOf(envelope?.settings?.goal?.toString() ?: "13500") }
+    var actionText by remember { mutableStateOf("") }
+    var actionAmount by remember { mutableStateOf("") }
+    var newProfileName by remember { mutableStateOf("") }
+    var importJson by remember { mutableStateOf("") }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Button(onClick = onBack) { Text("Back") }
-        Spacer(Modifier.height(8.dp))
-        Text("Settings", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(12.dp))
-
-        GlassCard {
-            Text("Goal", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(goalInput.value, { goalInput.value = it }, label = { Text("Coin goal") })
-            Spacer(Modifier.height(8.dp))
-            Button(onClick = { goalInput.value.toIntOrNull()?.let(onUpdateGoal) }) { Text("Update Goal") }
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+        Row {
+            Text("Settings", style = MaterialTheme.typography.headlineMedium, color = Color.White)
+            Spacer(Modifier.weight(1f))
+            Button(onClick = onBack) { Text("Back") }
         }
-
+        
+        // Data Management (Import/Export)
         GlassCard {
-            Text("Quick Actions", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(actionText.value, { actionText.value = it }, label = { Text("Label") })
-            OutlinedTextField(actionAmount.value, { actionAmount.value = it }, label = { Text("Amount") })
-            Row {
-                TextButton(onClick = { actionType.value = true }) { Text(if (actionType.value) "Income ✓" else "Income") }
-                TextButton(onClick = { actionType.value = false }) { Text(if (!actionType.value) "Expense ✓" else "Expense") }
-            }
-            Button(onClick = {
-                val amt = actionAmount.value.toIntOrNull() ?: return@Button
-                onAddQuickAction(QuickAction(actionText.value, amt, actionType.value))
-            }) { Text("Add Action") }
+            Text("Data Management", style = MaterialTheme.typography.titleMedium, color = Color(0xFF3B82F6))
             Spacer(Modifier.height(8.dp))
-            LazyColumn {
-                itemsIndexed(envelope?.settings?.quickActions ?: emptyList()) { idx, qa ->
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Text("${qa.text} (${if (qa.isPositive) "+" else "-"}${qa.value})", modifier = Modifier.weight(1f))
-                        TextButton(onClick = { onDeleteQuickAction(idx) }) { Text("Remove") }
-                    }
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onExportData, modifier = Modifier.weight(1f)) { Text("Export JSON") }
+                // For import, usually you'd open a file picker, here we simulated pasting JSON
             }
         }
 
+        Spacer(Modifier.height(16.dp))
+
+        // Goal
         GlassCard {
-            Text("Profiles", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(newProfileName.value, { newProfileName.value = it }, label = { Text("New profile name") })
-            Button(onClick = { if (newProfileName.value.isNotBlank()) onCreateProfile(newProfileName.value.trim()) }) { Text("Create Profile") }
-            Spacer(Modifier.height(8.dp))
-            Text("Available: ${profiles.joinToString()}")
+            Text("Goal Setting", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(goalInput, { goalInput = it }, label = { Text("Coin Goal") }, modifier = Modifier.fillMaxWidth())
+            Button(onClick = { goalInput.toIntOrNull()?.let(onUpdateGoal) }, modifier = Modifier.fillMaxWidth().padding(top=8.dp)) { Text("Update Goal") }
         }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Profiles
+        GlassCard {
+            Text("Create Profile", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(newProfileName, { newProfileName = it }, label = { Text("Profile Name") }, modifier = Modifier.fillMaxWidth())
+            Button(onClick = { if (newProfileName.isNotBlank()) onCreateProfile(newProfileName); newProfileName = "" }, modifier = Modifier.fillMaxWidth().padding(top=8.dp)) { Text("Create") }
+        }
+        
+        Spacer(Modifier.height(80.dp))
     }
 }

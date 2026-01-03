@@ -1,6 +1,8 @@
 package com.cointracker.mobile.ui
 
 import android.widget.Toast
+import androidx.compose.animation.animateColor
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -38,7 +40,16 @@ import com.cointracker.mobile.data.Settings
 import com.cointracker.mobile.data.Transaction
 import com.cointracker.mobile.data.defaultSettings
 import com.cointracker.mobile.ui.screens.AdminScreen // Ensure you have this file
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import com.cointracker.mobile.ui.screens.*
+import com.cointracker.mobile.ui.theme.CoinTrackerTheme
 
+// Web Gradient Colors
+val Gradient1 = Color(0xFFC3AED6)
+val Gradient2 = Color(0xFFF0ABFC)
+val Gradient3 = Color(0xFFA1C4FD)
+val Gradient4 = Color(0xFFFDF8C8)
 // ----------------------------------------------------------------
 // THEME COLORS (Matched to Web style.css)
 // ----------------------------------------------------------------
@@ -47,6 +58,28 @@ val WebSuccess = Color(0xFF10B981) // --success-color
 val WebDanger = Color(0xFFEF4444)  // --danger-color
 val WebText = Color(0xFF1E293B)
 val WebMuted = Color(0xFF64748B)
+
+@Composable
+fun AnimatedGradientBackground(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val infiniteTransition = rememberInfiniteTransition(label = "background")
+    
+    // Animate colors to simulate the CSS gradient movement
+    val c1 by infiniteTransition.animateColor(
+        initialValue = Gradient1, targetValue = Gradient2,
+        animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing), RepeatMode.Reverse), label = "c1"
+    )
+    val c2 by infiniteTransition.animateColor(
+        initialValue = Gradient3, targetValue = Gradient4,
+        animationSpec = infiniteRepeatable(tween(5000, easing = LinearEasing), RepeatMode.Reverse), label = "c2"
+    )
+
+    Box(
+        modifier = modifier
+            .background(Brush.linearGradient(listOf(c1, c2)))
+    ) {
+        content()
+    }
+}
 
 // Web Gradient: linear-gradient(125deg, #c3aed6, #f0abfc, #a1c4fd, #fdf8c8)
 // Adapted for mobile (Darker glass feel)
@@ -93,33 +126,26 @@ fun GlassCard(
 // ----------------------------------------------------------------
 @Composable
 fun CoinTrackerApp(viewModel: CoinTrackerViewModel = viewModel()) {
-    GlassTheme {
-        val navController = rememberNavController()
-        val uiState by viewModel.uiState.collectAsState()
-        val userSession = uiState.session
+    val navController = rememberNavController()
+    val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(DarkGlassGradient)
-        ) {
-            if (userSession == null) {
-                // Fix #13: Separate Login/Register Screen
+    CoinTrackerTheme {
+        AnimatedGradientBackground(modifier = Modifier.fillMaxSize()) {
+            if (uiState.session == null) {
                 LoginNavigation(viewModel)
             } else {
                 Scaffold(
                     containerColor = Color.Transparent,
-                    // Fix #1: Handle Status Bar overlap
                     contentWindowInsets = WindowInsets.statusBars,
                     bottomBar = {
-                        // Fix #11: Fixed Bottom Navigation
                         NavigationBar(
-                            containerColor = Color(0xFF1A1D23).copy(alpha = 0.95f),
-                            contentColor = WebPrimary
+                            containerColor = Color(0xFF1A1D23).copy(alpha = 0.9f),
+                            contentColor = Color(0xFF3B82F6)
                         ) {
                             val currentBackStack by navController.currentBackStackEntryAsState()
                             val currentRoute = currentBackStack?.destination?.route ?: "dashboard"
-
                             val items = listOf(
                                 "dashboard" to Icons.Default.Home,
                                 "analytics" to Icons.Default.DateRange,
@@ -131,13 +157,6 @@ fun CoinTrackerApp(viewModel: CoinTrackerViewModel = viewModel()) {
                                     icon = { Icon(icon, contentDescription = route) },
                                     label = { Text(route.replaceFirstChar { it.uppercase() }) },
                                     selected = currentRoute == route,
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = WebPrimary,
-                                        selectedTextColor = WebPrimary,
-                                        unselectedIconColor = WebMuted,
-                                        unselectedTextColor = WebMuted,
-                                        indicatorColor = WebPrimary.copy(alpha = 0.15f)
-                                    ),
                                     onClick = {
                                         if (currentRoute != route) {
                                             navController.navigate(route) {
@@ -146,33 +165,77 @@ fun CoinTrackerApp(viewModel: CoinTrackerViewModel = viewModel()) {
                                                 restoreState = true
                                             }
                                         }
-                                    }
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFF3B82F6),
+                                        indicatorColor = Color(0xFF3B82F6).copy(alpha = 0.15f)
+                                    )
                                 )
                             }
                         }
                     }
                 ) { innerPadding ->
-                    // Fix #2: Content Visibility
-                    NavHost(
-                        navController = navController,
-                        startDestination = "dashboard",
-                        modifier = Modifier.padding(innerPadding)
-                    ) {
-                        composable("dashboard") { DashboardScreen(viewModel) }
-                        composable("analytics") { AnalyticsScreen(viewModel) }
-                        composable("history") { HistoryScreen(viewModel) }
-                        composable("settings") { SettingsScreen(viewModel, navController) }
-                        // Fix #4: Admin Route
-                        composable("admin") {
-                            AdminScreen(
-                                session = uiState.session,
-                                stats = uiState.adminStats,
-                                users = uiState.adminUsers,
-                                loading = uiState.loading,
-                                onRefresh = { viewModel.loadAdmin() },
-                                onDeleteUser = { viewModel.deleteUser(it) },
-                                onBack = { navController.popBackStack() }
-                            )
+                    Box(modifier = Modifier.padding(innerPadding)) {
+                        NavHost(navController = navController, startDestination = "dashboard") {
+                            composable("dashboard") {
+                                DashboardScreen(
+                                    envelope = uiState.profileEnvelope,
+                                    session = uiState.session,
+                                    loading = uiState.loading,
+                                    profiles = uiState.profiles,
+                                    onAddIncome = { amt, src, date -> viewModel.addTransaction(amt, src, date) },
+                                    onAddExpense = { amt, src, date -> viewModel.addTransaction(-amt, src, date) },
+                                    onProfileChange = { viewModel.switchProfile(it) },
+                                    onNavigate = { route -> navController.navigate(route) },
+                                    onLogout = { viewModel.logout() }
+                                )
+                            }
+                            composable("analytics") {
+                                AnalyticsScreen(
+                                    envelope = uiState.profileEnvelope,
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
+                            composable("history") {
+                                HistoryScreen(
+                                    envelope = uiState.profileEnvelope,
+                                    onDelete = { viewModel.deleteTransaction(it) },
+                                    onEdit = { id, amt, src, date -> viewModel.updateTransaction(id, amt, src, date) },
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
+                            composable("settings") {
+                                SettingsScreen(
+                                    envelope = uiState.profileEnvelope,
+                                    profiles = uiState.profiles,
+                                    onUpdateGoal = { viewModel.updateSettings((uiState.profileEnvelope?.settings ?: defaultSettings()).copy(goal = it)) },
+                                    onAddQuickAction = { viewModel.addQuickAction(it) },
+                                    onDeleteQuickAction = { viewModel.deleteQuickAction(it) },
+                                    onCreateProfile = { viewModel.createProfile(it) },
+                                    onImportData = { json ->
+                                        Toast.makeText(context, "Import not available in demo", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onExportData = {
+                                        // Manual string export to avoid missing Gson dependency
+                                        val data = uiState.profileEnvelope?.transactions.toString()
+                                        clipboardManager.setText(AnnotatedString(data))
+                                        Toast.makeText(context, "Data copied to clipboard", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
+                            composable("admin") {
+                                LaunchedEffect(Unit) { viewModel.loadAdmin() }
+                                AdminScreen(
+                                    session = uiState.session,
+                                    stats = uiState.adminStats,
+                                    users = uiState.adminUsers,
+                                    loading = uiState.loading,
+                                    onRefresh = { viewModel.loadAdmin() },
+                                    onDeleteUser = { viewModel.deleteUser(it) },
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
                         }
                     }
                 }
